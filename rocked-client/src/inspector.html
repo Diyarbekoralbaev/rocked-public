@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rocked inspector</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #c9d1d9; font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; }
+  #header { padding: 12px 20px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 16px; }
+  #header h1 { font-size: 15px; font-weight: 600; color: #f0f6fc; }
+  #header .badge { background: #238636; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+  #header .badge.disconnected { background: #da3633; }
+  #controls { padding: 8px 20px; border-bottom: 1px solid #21262d; display: flex; gap: 8px; align-items: center; }
+  #controls input, #controls select { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: inherit; font-size: 12px; }
+  #controls input { width: 200px; }
+  #controls button { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
+  #controls button:hover { background: #30363d; }
+  #controls .count { margin-left: auto; color: #8b949e; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead { position: sticky; top: 0; background: #161b22; z-index: 1; }
+  th { text-align: left; padding: 8px 12px; border-bottom: 1px solid #30363d; color: #8b949e; font-weight: 500; font-size: 11px; text-transform: uppercase; }
+  td { padding: 6px 12px; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  tr.request:hover { background: #161b22; cursor: pointer; }
+  tr.request.selected { background: #1c2128; }
+  .method { display: inline-block; padding: 1px 6px; border-radius: 3px; font-weight: 600; font-size: 11px; min-width: 42px; text-align: center; }
+  .method.GET { background: #1f6feb33; color: #58a6ff; }
+  .method.POST { background: #23863633; color: #3fb950; }
+  .method.PUT { background: #9e6a0333; color: #d29922; }
+  .method.DELETE { background: #da363333; color: #f85149; }
+  .method.PATCH { background: #8957e533; color: #bc8cff; }
+  .method.HEAD, .method.OPTIONS { background: #21262d; color: #8b949e; }
+  .status { font-weight: 600; }
+  .s2xx { color: #3fb950; }
+  .s3xx { color: #58a6ff; }
+  .s4xx { color: #d29922; }
+  .s5xx { color: #f85149; }
+  .pending { color: #8b949e; }
+  .path { color: #f0f6fc; max-width: 400px; overflow: hidden; text-overflow: ellipsis; }
+  .duration { color: #8b949e; }
+  .size { color: #8b949e; }
+  .time { color: #484f58; font-size: 11px; }
+  #details { display: none; position: fixed; right: 0; top: 0; bottom: 0; width: 420px; background: #161b22; border-left: 1px solid #30363d; overflow-y: auto; padding: 16px; z-index: 10; }
+  #details.open { display: block; }
+  #details h3 { font-size: 13px; margin-bottom: 8px; color: #f0f6fc; }
+  #details .close { position: absolute; top: 12px; right: 12px; cursor: pointer; color: #8b949e; font-size: 18px; }
+  #details .close:hover { color: #f0f6fc; }
+  .header-table { width: 100%; margin: 8px 0 16px; }
+  .header-table td { padding: 2px 8px; border: none; font-size: 12px; word-break: break-all; white-space: normal; }
+  .header-table .name { color: #58a6ff; font-weight: 500; width: 140px; }
+  .header-table .val { color: #c9d1d9; }
+  #empty { text-align: center; padding: 60px 20px; color: #484f58; }
+  #empty p { margin-top: 8px; }
+  #scroll-anchor { height: 1px; }
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>rocked inspector</h1>
+  <span id="status-badge" class="badge">connected</span>
+</div>
+<div id="controls">
+  <input id="filter-path" type="text" placeholder="Filter path...">
+  <select id="filter-method">
+    <option value="">All methods</option>
+    <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>PATCH</option>
+  </select>
+  <select id="filter-status">
+    <option value="">All status</option>
+    <option value="2">2xx</option><option value="3">3xx</option><option value="4">4xx</option><option value="5">5xx</option>
+  </select>
+  <button id="btn-clear">Clear</button>
+  <label style="display:flex;align-items:center;gap:4px;color:#8b949e;font-size:12px">
+    <input id="auto-scroll" type="checkbox" checked> Auto-scroll
+  </label>
+  <span class="count" id="req-count">0 requests</span>
+</div>
+<div id="table-wrap" style="overflow-y:auto;height:calc(100vh - 85px)">
+  <div id="empty"><h2>Waiting for requests...</h2><p>Send HTTP requests to your tunnel URL</p></div>
+  <table id="req-table" style="display:none">
+    <thead><tr><th>Method</th><th>Path</th><th>Status</th><th>Duration</th><th>Size</th><th>Time</th></tr></thead>
+    <tbody id="req-body"></tbody>
+  </table>
+  <div id="scroll-anchor"></div>
+</div>
+<div id="details">
+  <span class="close" onclick="closeDetails()">&times;</span>
+  <div id="detail-content"></div>
+</div>
+<script>
+const requests = new Map();
+const tbody = document.getElementById('req-body');
+const table = document.getElementById('req-table');
+const empty = document.getElementById('empty');
+const badge = document.getElementById('status-badge');
+const countEl = document.getElementById('req-count');
+const filterPath = document.getElementById('filter-path');
+const filterMethod = document.getElementById('filter-method');
+const filterStatus = document.getElementById('filter-status');
+const autoScroll = document.getElementById('auto-scroll');
+let selectedId = null;
+
+function connect() {
+  const es = new EventSource('/events');
+  es.onopen = () => { badge.textContent = 'connected'; badge.className = 'badge'; };
+  es.onerror = () => { badge.textContent = 'disconnected'; badge.className = 'badge disconnected'; };
+  es.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    if (ev.status !== null && ev.method === '') {
+      // Response event — update existing row
+      const existing = requests.get(ev.id);
+      if (existing) {
+        existing.status = ev.status;
+        existing.duration_ms = ev.duration_ms;
+        existing.response_size = ev.response_size;
+        existing.response_headers = ev.response_headers;
+        updateRow(ev.id);
+        if (selectedId === ev.id) showDetails(ev.id);
+      }
+    } else {
+      // Request event — new row
+      requests.set(ev.id, ev);
+      addRow(ev);
+    }
+    countEl.textContent = requests.size + ' requests';
+  };
+}
+
+function statusClass(s) {
+  if (!s) return 'pending';
+  if (s < 300) return 's2xx';
+  if (s < 400) return 's3xx';
+  if (s < 500) return 's4xx';
+  return 's5xx';
+}
+
+function formatSize(b) {
+  if (!b) return '-';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleTimeString();
+}
+
+function matchesFilter(req) {
+  const fp = filterPath.value.toLowerCase();
+  const fm = filterMethod.value;
+  const fs = filterStatus.value;
+  if (fp && !req.path.toLowerCase().includes(fp)) return false;
+  if (fm && req.method !== fm) return false;
+  if (fs && req.status && !String(req.status).startsWith(fs)) return false;
+  return true;
+}
+
+function addRow(req) {
+  if (table.style.display === 'none') { table.style.display = ''; empty.style.display = 'none'; }
+  const tr = document.createElement('tr');
+  tr.className = 'request';
+  tr.dataset.id = req.id;
+  tr.onclick = () => { selectedId = req.id; document.querySelectorAll('tr.selected').forEach(r=>r.classList.remove('selected')); tr.classList.add('selected'); showDetails(req.id); };
+  tr.innerHTML = `<td><span class="method ${req.method}">${req.method}</span></td><td class="path" title="${req.path}">${req.path}</td><td class="status ${statusClass(req.status)}">${req.status||'...'}</td><td class="duration">${req.duration_ms!=null?req.duration_ms+'ms':'-'}</td><td class="size">${formatSize(req.response_size||req.request_size)}</td><td class="time">${formatTime(req.timestamp)}</td>`;
+  if (!matchesFilter(req)) tr.style.display = 'none';
+  tbody.appendChild(tr);
+  if (autoScroll.checked) document.getElementById('scroll-anchor').scrollIntoView();
+}
+
+function updateRow(id) {
+  const req = requests.get(id);
+  if (!req) return;
+  const tr = tbody.querySelector(`tr[data-id="${id}"]`);
+  if (!tr) return;
+  tr.children[2].className = 'status ' + statusClass(req.status);
+  tr.children[2].textContent = req.status || '...';
+  tr.children[3].textContent = req.duration_ms != null ? req.duration_ms + 'ms' : '-';
+  tr.children[4].textContent = formatSize(req.response_size || req.request_size);
+}
+
+function showDetails(id) {
+  const req = requests.get(id);
+  if (!req) return;
+  const d = document.getElementById('detail-content');
+  let html = `<h3><span class="method ${req.method}">${req.method}</span> ${req.path}</h3>`;
+  html += `<p style="color:#8b949e;margin:4px 0">Host: ${req.host} &bull; Status: <span class="${statusClass(req.status)}">${req.status||'pending'}</span> &bull; ${req.duration_ms!=null?req.duration_ms+'ms':'...'}</p>`;
+  if (req.request_headers && req.request_headers.length) {
+    html += '<h3 style="margin-top:16px">Request Headers</h3><table class="header-table">';
+    req.request_headers.forEach(([n,v]) => { html += `<tr><td class="name">${n}</td><td class="val">${v}</td></tr>`; });
+    html += '</table>';
+  }
+  if (req.response_headers && req.response_headers.length) {
+    html += '<h3>Response Headers</h3><table class="header-table">';
+    req.response_headers.forEach(([n,v]) => { html += `<tr><td class="name">${n}</td><td class="val">${v}</td></tr>`; });
+    html += '</table>';
+  }
+  d.innerHTML = html;
+  document.getElementById('details').classList.add('open');
+}
+
+function closeDetails() { document.getElementById('details').classList.remove('open'); selectedId = null; }
+
+function applyFilters() {
+  tbody.querySelectorAll('tr').forEach(tr => {
+    const req = requests.get(Number(tr.dataset.id));
+    tr.style.display = req && matchesFilter(req) ? '' : 'none';
+  });
+}
+
+document.getElementById('btn-clear').onclick = () => { requests.clear(); tbody.innerHTML = ''; table.style.display = 'none'; empty.style.display = ''; countEl.textContent = '0 requests'; closeDetails(); };
+filterPath.oninput = applyFilters;
+filterMethod.onchange = applyFilters;
+filterStatus.onchange = applyFilters;
+
+// Load existing history
+fetch('/api/requests').then(r=>r.json()).then(data=>{data.forEach(r=>{requests.set(r.id,r);addRow(r);});countEl.textContent=requests.size+' requests';});
+
+connect();
+</script>
+</body>
+</html>

@@ -3,6 +3,7 @@
 mod bench;
 mod config;
 mod error;
+mod inspect;
 mod local;
 mod update;
 
@@ -84,10 +85,23 @@ async fn main() {
         return;
     }
 
-    let (tunnel_type, local_port, subdomain) = match &cli.command {
-        Command::Http { port, subdomain } => (TunnelType::Http, *port, subdomain.clone()),
-        Command::Tcp { port } => (TunnelType::Tcp, *port, None),
-        Command::Udp { port } => (TunnelType::Udp, *port, None),
+    let (tunnel_type, local_port, subdomain, no_qr, no_inspect, inspect_port) = match &cli.command {
+        Command::Http {
+            port,
+            subdomain,
+            no_qr,
+            no_inspect,
+            inspect_port,
+        } => (
+            TunnelType::Http,
+            *port,
+            subdomain.clone(),
+            *no_qr,
+            *no_inspect,
+            *inspect_port,
+        ),
+        Command::Tcp { port } => (TunnelType::Tcp, *port, None, true, true, 0),
+        Command::Udp { port } => (TunnelType::Udp, *port, None, true, true, 0),
         Command::Update | Command::Activate { .. } | Command::Bench { .. } => unreachable!(),
     };
 
@@ -96,14 +110,31 @@ async fn main() {
     let mut backoff = Duration::from_secs(1);
     let max_backoff = Duration::from_secs(30);
 
+    // Create endpoint once so TLS session cache persists across reconnects (enables 0-RTT)
+    let endpoint = match make_quic_client() {
+        Ok(e) => e,
+        Err(e) => {
+            warn!("failed to create QUIC client: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let opts = TunnelOpts {
+        no_qr,
+        no_inspect,
+        inspect_port,
+    };
+
     loop {
         info!("connecting to {}", cli.server);
         match run_tunnel(
+            &endpoint,
             &cli.server,
             tunnel_type,
             local_port,
             key.clone(),
             subdomain.clone(),
+            &opts,
         )
         .await
         {
@@ -148,10 +179,13 @@ fn resolve_server(server: &str) -> Result<(std::net::SocketAddr, String), Client
 
 /// Build a QUIC client endpoint that skips certificate verification (self-signed server).
 fn make_quic_client() -> Result<quinn::Endpoint, ClientError> {
-    let crypto = rustls::ClientConfig::builder()
+    let mut crypto = rustls::ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
         .with_no_client_auth();
+
+    // Enable 0-RTT for faster reconnections
+    crypto.enable_early_data = true;
 
     let client_config = quinn::ClientConfig::new(Arc::new(
         quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
@@ -191,21 +225,47 @@ fn extract_server_host(server: &str) -> &str {
     server.rsplit_once(':').map(|(h, _)| h).unwrap_or(server)
 }
 
+struct TunnelOpts {
+    no_qr: bool,
+    no_inspect: bool,
+    inspect_port: u16,
+}
+
 /// Run a single tunnel session over QUIC.
+#[allow(clippy::too_many_arguments)]
 async fn run_tunnel(
+    endpoint: &quinn::Endpoint,
     server: &str,
     tunnel_type: TunnelType,
     local_port: u16,
     key: Option<String>,
     subdomain: Option<String>,
+    opts: &TunnelOpts,
 ) -> Result<(), ClientError> {
     let (addr, server_name) = resolve_server(server)?;
-    let endpoint = make_quic_client()?;
 
-    let conn = endpoint.connect(addr, &server_name)?.await?;
+    // Try 0-RTT on reconnect (session ticket cached from previous connection)
+    let connecting = endpoint.connect(addr, &server_name)?;
+    let conn = match connecting.into_0rtt() {
+        Ok((conn, zero_rtt_accepted)) => {
+            debug!("0-RTT connection attempt");
+            tokio::spawn(async move {
+                if zero_rtt_accepted.await {
+                    debug!("0-RTT accepted by server");
+                }
+            });
+            conn
+        }
+        Err(connecting) => {
+            debug!("full handshake (no cached session)");
+            connecting.await?
+        }
+    };
 
     let (server_hello, _ctrl_send, _ctrl_recv) =
         quic_handshake(&conn, tunnel_type, key, subdomain).await?;
+
+    let mut inspect_state: Option<inspect::InspectorState> = None;
 
     match &server_hello {
         ServerHello::Success {
@@ -236,6 +296,39 @@ async fn run_tunnel(
                 }
             }
             debug!("client_id: {client_id}");
+
+            // Print QR code
+            if !opts.no_qr {
+                let qr_url = match tunnel_type {
+                    TunnelType::Http => format!("https://{hostname}"),
+                    TunnelType::Tcp => format!(
+                        "{}:{}",
+                        extract_server_host(server),
+                        assigned_port.unwrap_or(0)
+                    ),
+                    TunnelType::Udp => format!(
+                        "{}:{}",
+                        extract_server_host(server),
+                        assigned_port.unwrap_or(0)
+                    ),
+                };
+                if let Ok(code) = qrcode::QrCode::new(qr_url.as_bytes()) {
+                    let qr_string = code
+                        .render::<char>()
+                        .quiet_zone(true)
+                        .module_dimensions(2, 1)
+                        .build();
+                    eprintln!("\n{qr_string}");
+                }
+            }
+
+            // Start web inspector for HTTP tunnels
+            if tunnel_type == TunnelType::Http && !opts.no_inspect {
+                let inspector_state = inspect::InspectorState::new();
+                inspect_state = Some(inspector_state.clone());
+                tokio::spawn(inspect::start_inspector(opts.inspect_port, inspector_state));
+                info!("inspector: http://127.0.0.1:{}", opts.inspect_port);
+            }
         }
         ServerHello::SubdomainInUse => {
             return Err(ClientError::SubdomainInUse);
@@ -263,7 +356,8 @@ async fn run_tunnel(
 
         match type_buf[0] {
             rocked_proto::STREAM_TYPE_RELAY => {
-                tokio::spawn(local::relay_tcp(send, recv, local_port));
+                let tx = inspect_state.as_ref().map(|s| s.tx.clone());
+                tokio::spawn(local::relay_tcp(send, recv, local_port, tx));
             }
             rocked_proto::STREAM_TYPE_UDP => {
                 tokio::spawn(local::relay_udp(send, recv, local_port));
@@ -318,7 +412,7 @@ async fn run_bench_tunnel(
             }
 
             if type_buf[0] == rocked_proto::STREAM_TYPE_RELAY {
-                tokio::spawn(local::relay_tcp(send, recv, local_port));
+                tokio::spawn(local::relay_tcp(send, recv, local_port, None));
             }
         }
     });

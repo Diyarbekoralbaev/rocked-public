@@ -30,6 +30,15 @@ pub enum Command {
         /// Custom subdomain (Pro only)
         #[arg(long)]
         subdomain: Option<String>,
+        /// Disable QR code display
+        #[arg(long)]
+        no_qr: bool,
+        /// Disable web inspector
+        #[arg(long)]
+        no_inspect: bool,
+        /// Web inspector port
+        #[arg(long, default_value = "4040")]
+        inspect_port: u16,
     },
     /// Expose a local TCP server
     Tcp {
