@@ -1,0 +1,24 @@
+[package]
+name = "rocked-client"
+version = "0.8.0"
+edition = "2021"
+
+[[bin]]
+name = "rocked"
+path = "src/main.rs"
+
+[dependencies]
+rocked-proto = { path = "../rocked-proto" }
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+dirs = "6"
+quinn = "0.11.9"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+sha2 = "0.10"
