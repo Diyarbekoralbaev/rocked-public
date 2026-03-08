@@ -37,8 +37,11 @@ pub enum Command {
     Http {
         /// Local port to expose
         port: u16,
+        /// Local host to forward to
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
         /// Custom subdomain (Pro only)
-        #[arg(long)]
+        #[arg(short, long)]
         subdomain: Option<String>,
         /// Use a verified custom domain (Pro only)
         #[arg(long)]
@@ -57,11 +60,17 @@ pub enum Command {
     Tcp {
         /// Local port to expose
         port: u16,
+        /// Local host to forward to
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
     },
     /// Expose a local UDP server
     Udp {
         /// Local port to expose
         port: u16,
+        /// Local host to forward to
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
     },
     /// Update tunn to the latest version
     Update,

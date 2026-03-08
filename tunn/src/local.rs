@@ -16,9 +16,10 @@ pub async fn relay_tcp(
     mut quic_send: quinn::SendStream,
     mut quic_recv: quinn::RecvStream,
     local_port: u16,
+    local_host: String,
     inspect_tx: Option<broadcast::Sender<RequestEvent>>,
 ) {
-    let local = match TcpStream::connect(format!("127.0.0.1:{local_port}")).await {
+    let local = match TcpStream::connect(format!("{local_host}:{local_port}")).await {
         Ok(s) => s,
         Err(e) => {
             debug!("connect to localhost:{local_port} failed: {e}");
@@ -309,8 +310,9 @@ pub async fn relay_udp(
     mut quic_send: quinn::SendStream,
     mut quic_recv: quinn::RecvStream,
     local_port: u16,
+    local_host: String,
 ) {
-    let local_target = format!("127.0.0.1:{local_port}");
+    let local_target = format!("{local_host}:{local_port}");
     let socket = match UdpSocket::bind("0.0.0.0:0").await {
         Ok(s) => s,
         Err(e) => {

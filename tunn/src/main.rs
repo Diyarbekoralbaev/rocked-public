@@ -101,10 +101,11 @@ async fn main() {
         return;
     }
 
-    let (tunnel_type, local_port, subdomain, custom_domain, no_qr, no_inspect, inspect_port) =
+    let (tunnel_type, local_port, local_host, subdomain, custom_domain, no_qr, no_inspect, inspect_port) =
         match &cli.command {
             Command::Http {
                 port,
+                host,
                 subdomain,
                 domain,
                 no_qr,
@@ -113,14 +114,15 @@ async fn main() {
             } => (
                 TunnelType::Http,
                 *port,
+                host.clone(),
                 subdomain.clone(),
                 domain.clone(),
                 *no_qr,
                 *no_inspect,
                 *inspect_port,
             ),
-            Command::Tcp { port } => (TunnelType::Tcp, *port, None, None, true, true, 0),
-            Command::Udp { port } => (TunnelType::Udp, *port, None, None, true, true, 0),
+            Command::Tcp { port, host } => (TunnelType::Tcp, *port, host.clone(), None, None, true, true, 0),
+            Command::Udp { port, host } => (TunnelType::Udp, *port, host.clone(), None, None, true, true, 0),
             Command::Update
             | Command::Activate { .. }
             | Command::Bench { .. }
@@ -154,6 +156,7 @@ async fn main() {
             &cli.server,
             tunnel_type,
             local_port,
+            &local_host,
             key.clone(),
             subdomain.clone(),
             custom_domain.clone(),
@@ -265,6 +268,7 @@ async fn run_tunnel(
     server: &str,
     tunnel_type: TunnelType,
     local_port: u16,
+    local_host: &str,
     key: Option<String>,
     subdomain: Option<String>,
     custom_domain: Option<String>,
@@ -390,10 +394,12 @@ async fn run_tunnel(
         match type_buf[0] {
             tunn_proto::STREAM_TYPE_RELAY => {
                 let tx = inspect_state.as_ref().map(|s| s.tx.clone());
-                tokio::spawn(local::relay_tcp(send, recv, local_port, tx));
+                let host = local_host.to_string();
+                tokio::spawn(local::relay_tcp(send, recv, local_port, host, tx));
             }
             tunn_proto::STREAM_TYPE_UDP => {
-                tokio::spawn(local::relay_udp(send, recv, local_port));
+                let host = local_host.to_string();
+                tokio::spawn(local::relay_udp(send, recv, local_port, host));
             }
             other => {
                 debug!("unknown stream type: {other}");
@@ -446,7 +452,7 @@ async fn run_bench_tunnel(
             }
 
             if type_buf[0] == tunn_proto::STREAM_TYPE_RELAY {
-                tokio::spawn(local::relay_tcp(send, recv, local_port, None));
+                tokio::spawn(local::relay_tcp(send, recv, local_port, "127.0.0.1".to_string(), None));
             }
         }
     });
