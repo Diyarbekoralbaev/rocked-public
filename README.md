@@ -4,13 +4,13 @@ Fast tunneling tool built in Rust. Expose local servers to the public internet w
 
 ```
 $ rocked http 8080
-  tunnel ready: https://abc123.guruaibot.com
+  tunnel ready: https://abc123.tunn.uz
 ```
 
 ## Install
 
 ```bash
-curl -s https://guruaibot.com/install | bash
+curl -s https://tunn.uz/install | bash
 ```
 
 Or download binaries from [Releases](https://github.com/Diyarbekoralbaev/rocked-public/releases).
