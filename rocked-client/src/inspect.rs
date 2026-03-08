@@ -14,6 +14,9 @@ use tracing::info;
 
 const MAX_HISTORY: usize = 1000;
 
+/// Max body size to capture (256KB). Larger bodies are truncated.
+pub const MAX_BODY_CAPTURE: usize = 256 * 1024;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RequestEvent {
     pub id: u64,
@@ -26,6 +29,8 @@ pub struct RequestEvent {
     pub response_size: u64,
     pub request_headers: Vec<(String, String)>,
     pub response_headers: Vec<(String, String)>,
+    pub request_body: Option<String>,
+    pub response_body: Option<String>,
     pub timestamp: u64,
 }
 
@@ -59,6 +64,7 @@ impl InspectorState {
                                 existing.duration_ms = event.duration_ms;
                                 existing.response_size = event.response_size;
                                 existing.response_headers = event.response_headers;
+                                existing.response_body = event.response_body;
                                 continue;
                             }
                         }

@@ -6,17 +6,19 @@
 <title>rocked inspector</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0d1117; color: #c9d1d9; font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; }
-  #header { padding: 12px 20px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 16px; }
+  body { background: #0d1117; color: #c9d1d9; font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; font-size: 13px; display: flex; flex-direction: column; height: 100vh; }
+  #header { padding: 12px 20px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
   #header h1 { font-size: 15px; font-weight: 600; color: #f0f6fc; }
   #header .badge { background: #238636; color: #fff; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
   #header .badge.disconnected { background: #da3633; }
-  #controls { padding: 8px 20px; border-bottom: 1px solid #21262d; display: flex; gap: 8px; align-items: center; }
+  #controls { padding: 8px 20px; border-bottom: 1px solid #21262d; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
   #controls input, #controls select { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: inherit; font-size: 12px; }
   #controls input { width: 200px; }
   #controls button { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
   #controls button:hover { background: #30363d; }
   #controls .count { margin-left: auto; color: #8b949e; font-size: 12px; }
+  #main { display: flex; flex: 1; overflow: hidden; }
+  #list-pane { flex: 1; overflow-y: auto; border-right: 1px solid #21262d; }
   table { width: 100%; border-collapse: collapse; }
   thead { position: sticky; top: 0; background: #161b22; z-index: 1; }
   th { text-align: left; padding: 8px 12px; border-bottom: 1px solid #30363d; color: #8b949e; font-weight: 500; font-size: 11px; text-transform: uppercase; }
@@ -40,15 +42,25 @@
   .duration { color: #8b949e; }
   .size { color: #8b949e; }
   .time { color: #484f58; font-size: 11px; }
-  #details { display: none; position: fixed; right: 0; top: 0; bottom: 0; width: 420px; background: #161b22; border-left: 1px solid #30363d; overflow-y: auto; padding: 16px; z-index: 10; }
-  #details.open { display: block; }
-  #details h3 { font-size: 13px; margin-bottom: 8px; color: #f0f6fc; }
-  #details .close { position: absolute; top: 12px; right: 12px; cursor: pointer; color: #8b949e; font-size: 18px; }
-  #details .close:hover { color: #f0f6fc; }
-  .header-table { width: 100%; margin: 8px 0 16px; }
-  .header-table td { padding: 2px 8px; border: none; font-size: 12px; word-break: break-all; white-space: normal; }
-  .header-table .name { color: #58a6ff; font-weight: 500; width: 140px; }
-  .header-table .val { color: #c9d1d9; }
+  #detail-pane { width: 0; overflow-y: auto; background: #161b22; transition: width 0.15s; flex-shrink: 0; }
+  #detail-pane.open { width: 500px; border-left: 1px solid #30363d; }
+  #detail-header { padding: 12px 16px; border-bottom: 1px solid #21262d; display: flex; justify-content: space-between; align-items: center; }
+  #detail-header .close { cursor: pointer; color: #8b949e; font-size: 18px; padding: 0 4px; }
+  #detail-header .close:hover { color: #f0f6fc; }
+  .tabs { display: flex; border-bottom: 1px solid #21262d; }
+  .tab { padding: 8px 16px; cursor: pointer; color: #8b949e; font-size: 12px; border-bottom: 2px solid transparent; }
+  .tab:hover { color: #c9d1d9; }
+  .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+  .tab-content { display: none; padding: 12px 16px; }
+  .tab-content.active { display: block; }
+  .header-row { display: flex; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #161b22; }
+  .header-row .name { color: #58a6ff; font-weight: 500; min-width: 160px; flex-shrink: 0; word-break: break-all; }
+  .header-row .val { color: #c9d1d9; word-break: break-all; }
+  .body-preview { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 12px; margin: 8px 0; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 400px; overflow-y: auto; color: #c9d1d9; }
+  .body-preview.json { color: #c9d1d9; }
+  .body-empty { color: #484f58; font-style: italic; padding: 20px; text-align: center; }
+  .summary-line { color: #8b949e; padding: 4px 0; font-size: 12px; }
+  .summary-line span { color: #f0f6fc; }
   #empty { text-align: center; padding: 60px 20px; color: #484f58; }
   #empty p { margin-top: 8px; }
   #scroll-anchor { height: 1px; }
@@ -61,31 +73,35 @@
 </div>
 <div id="controls">
   <input id="filter-path" type="text" placeholder="Filter path...">
-  <select id="filter-method">
-    <option value="">All methods</option>
-    <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>PATCH</option>
-  </select>
-  <select id="filter-status">
-    <option value="">All status</option>
-    <option value="2">2xx</option><option value="3">3xx</option><option value="4">4xx</option><option value="5">5xx</option>
-  </select>
+  <select id="filter-method"><option value="">All methods</option><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option><option>PATCH</option></select>
+  <select id="filter-status"><option value="">All status</option><option value="2">2xx</option><option value="3">3xx</option><option value="4">4xx</option><option value="5">5xx</option></select>
   <button id="btn-clear">Clear</button>
-  <label style="display:flex;align-items:center;gap:4px;color:#8b949e;font-size:12px">
-    <input id="auto-scroll" type="checkbox" checked> Auto-scroll
-  </label>
+  <label style="display:flex;align-items:center;gap:4px;color:#8b949e;font-size:12px"><input id="auto-scroll" type="checkbox" checked> Auto-scroll</label>
   <span class="count" id="req-count">0 requests</span>
 </div>
-<div id="table-wrap" style="overflow-y:auto;height:calc(100vh - 85px)">
-  <div id="empty"><h2>Waiting for requests...</h2><p>Send HTTP requests to your tunnel URL</p></div>
-  <table id="req-table" style="display:none">
-    <thead><tr><th>Method</th><th>Path</th><th>Status</th><th>Duration</th><th>Size</th><th>Time</th></tr></thead>
-    <tbody id="req-body"></tbody>
-  </table>
-  <div id="scroll-anchor"></div>
-</div>
-<div id="details">
-  <span class="close" onclick="closeDetails()">&times;</span>
-  <div id="detail-content"></div>
+<div id="main">
+  <div id="list-pane">
+    <div id="empty"><h2>Waiting for requests...</h2><p>Send HTTP requests to your tunnel URL</p></div>
+    <table id="req-table" style="display:none">
+      <thead><tr><th>Method</th><th>Path</th><th>Status</th><th>Duration</th><th>Size</th><th>Time</th></tr></thead>
+      <tbody id="req-body"></tbody>
+    </table>
+    <div id="scroll-anchor"></div>
+  </div>
+  <div id="detail-pane">
+    <div id="detail-header">
+      <div id="detail-title"></div>
+      <span class="close" onclick="closeDetails()">&times;</span>
+    </div>
+    <div class="tabs" id="detail-tabs">
+      <div class="tab active" data-tab="headers" onclick="switchTab('headers')">Headers</div>
+      <div class="tab" data-tab="request" onclick="switchTab('request')">Request</div>
+      <div class="tab" data-tab="response" onclick="switchTab('response')">Response</div>
+    </div>
+    <div class="tab-content active" id="tab-headers"></div>
+    <div class="tab-content" id="tab-request"></div>
+    <div class="tab-content" id="tab-response"></div>
+  </div>
 </div>
 <script>
 const requests = new Map();
@@ -107,18 +123,17 @@ function connect() {
   es.onmessage = (e) => {
     const ev = JSON.parse(e.data);
     if (ev.status !== null && ev.method === '') {
-      // Response event — update existing row
       const existing = requests.get(ev.id);
       if (existing) {
         existing.status = ev.status;
         existing.duration_ms = ev.duration_ms;
         existing.response_size = ev.response_size;
         existing.response_headers = ev.response_headers;
+        existing.response_body = ev.response_body;
         updateRow(ev.id);
         if (selectedId === ev.id) showDetails(ev.id);
       }
     } else {
-      // Request event — new row
       requests.set(ev.id, ev);
       addRow(ev);
     }
@@ -143,8 +158,7 @@ function formatSize(b) {
 
 function formatTime(ts) {
   if (!ts) return '';
-  const d = new Date(ts);
-  return d.toLocaleTimeString();
+  return new Date(ts).toLocaleTimeString();
 }
 
 function matchesFilter(req) {
@@ -163,7 +177,7 @@ function addRow(req) {
   tr.className = 'request';
   tr.dataset.id = req.id;
   tr.onclick = () => { selectedId = req.id; document.querySelectorAll('tr.selected').forEach(r=>r.classList.remove('selected')); tr.classList.add('selected'); showDetails(req.id); };
-  tr.innerHTML = `<td><span class="method ${req.method}">${req.method}</span></td><td class="path" title="${req.path}">${req.path}</td><td class="status ${statusClass(req.status)}">${req.status||'...'}</td><td class="duration">${req.duration_ms!=null?req.duration_ms+'ms':'-'}</td><td class="size">${formatSize(req.response_size||req.request_size)}</td><td class="time">${formatTime(req.timestamp)}</td>`;
+  tr.innerHTML = `<td><span class="method ${req.method}">${req.method}</span></td><td class="path" title="${esc(req.path)}">${esc(req.path)}</td><td class="status ${statusClass(req.status)}">${req.status||'...'}</td><td class="duration">${req.duration_ms!=null?req.duration_ms+'ms':'-'}</td><td class="size">${formatSize(req.response_size||req.request_size)}</td><td class="time">${formatTime(req.timestamp)}</td>`;
   if (!matchesFilter(req)) tr.style.display = 'none';
   tbody.appendChild(tr);
   if (autoScroll.checked) document.getElementById('scroll-anchor').scrollIntoView();
@@ -180,27 +194,69 @@ function updateRow(id) {
   tr.children[4].textContent = formatSize(req.response_size || req.request_size);
 }
 
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function renderHeaders(headers) {
+  if (!headers || !headers.length) return '<div class="body-empty">No headers</div>';
+  return headers.map(([n,v]) => `<div class="header-row"><span class="name">${esc(n)}</span><span class="val">${esc(v)}</span></div>`).join('');
+}
+
+function formatBody(body, headers) {
+  if (!body) return '<div class="body-empty">No body</div>';
+  const ct = (headers||[]).find(([n])=>n.toLowerCase()==='content-type');
+  const isJson = ct && ct[1].includes('json');
+  if (isJson) {
+    try {
+      const parsed = JSON.parse(body);
+      return '<pre class="body-preview json">' + esc(JSON.stringify(parsed, null, 2)) + '</pre>';
+    } catch(e) {}
+  }
+  return '<pre class="body-preview">' + esc(body) + '</pre>';
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-'+name));
+}
+
 function showDetails(id) {
   const req = requests.get(id);
   if (!req) return;
-  const d = document.getElementById('detail-content');
-  let html = `<h3><span class="method ${req.method}">${req.method}</span> ${req.path}</h3>`;
-  html += `<p style="color:#8b949e;margin:4px 0">Host: ${req.host} &bull; Status: <span class="${statusClass(req.status)}">${req.status||'pending'}</span> &bull; ${req.duration_ms!=null?req.duration_ms+'ms':'...'}</p>`;
-  if (req.request_headers && req.request_headers.length) {
-    html += '<h3 style="margin-top:16px">Request Headers</h3><table class="header-table">';
-    req.request_headers.forEach(([n,v]) => { html += `<tr><td class="name">${n}</td><td class="val">${v}</td></tr>`; });
-    html += '</table>';
-  }
+  const pane = document.getElementById('detail-pane');
+  pane.classList.add('open');
+
+  document.getElementById('detail-title').innerHTML = `<span class="method ${req.method}">${req.method}</span> <span style="color:#f0f6fc">${esc(req.path)}</span>`;
+
+  // Headers tab
+  let hhtml = '';
+  hhtml += '<div style="margin:8px 0"><div class="summary-line">URL: <span>' + esc(req.host + req.path) + '</span></div>';
+  hhtml += '<div class="summary-line">Status: <span class="' + statusClass(req.status) + '">' + (req.status||'pending') + '</span></div>';
+  hhtml += '<div class="summary-line">Duration: <span>' + (req.duration_ms!=null?req.duration_ms+'ms':'...') + '</span></div>';
+  hhtml += '<div class="summary-line">Size: <span>' + formatSize(req.request_size) + ' / ' + formatSize(req.response_size) + '</span></div></div>';
+  hhtml += '<h4 style="color:#8b949e;font-size:11px;text-transform:uppercase;margin:12px 0 4px">Request Headers</h4>';
+  hhtml += renderHeaders(req.request_headers);
   if (req.response_headers && req.response_headers.length) {
-    html += '<h3>Response Headers</h3><table class="header-table">';
-    req.response_headers.forEach(([n,v]) => { html += `<tr><td class="name">${n}</td><td class="val">${v}</td></tr>`; });
-    html += '</table>';
+    hhtml += '<h4 style="color:#8b949e;font-size:11px;text-transform:uppercase;margin:12px 0 4px">Response Headers</h4>';
+    hhtml += renderHeaders(req.response_headers);
   }
-  d.innerHTML = html;
-  document.getElementById('details').classList.add('open');
+  document.getElementById('tab-headers').innerHTML = hhtml;
+
+  // Request body tab
+  let rbhtml = '<h4 style="color:#8b949e;font-size:11px;text-transform:uppercase;margin:8px 0 4px">Request Body</h4>';
+  rbhtml += formatBody(req.request_body, req.request_headers);
+  document.getElementById('tab-request').innerHTML = rbhtml;
+
+  // Response body tab
+  let rshtml = '<h4 style="color:#8b949e;font-size:11px;text-transform:uppercase;margin:8px 0 4px">Response Body</h4>';
+  rshtml += formatBody(req.response_body, req.response_headers);
+  document.getElementById('tab-response').innerHTML = rshtml;
 }
 
-function closeDetails() { document.getElementById('details').classList.remove('open'); selectedId = null; }
+function closeDetails() {
+  document.getElementById('detail-pane').classList.remove('open');
+  selectedId = null;
+  document.querySelectorAll('tr.selected').forEach(r=>r.classList.remove('selected'));
+}
 
 function applyFilters() {
   tbody.querySelectorAll('tr').forEach(tr => {
@@ -214,9 +270,7 @@ filterPath.oninput = applyFilters;
 filterMethod.onchange = applyFilters;
 filterStatus.onchange = applyFilters;
 
-// Load existing history
 fetch('/api/requests').then(r=>r.json()).then(data=>{data.forEach(r=>{requests.set(r.id,r);addRow(r);});countEl.textContent=requests.size+' requests';});
-
 connect();
 </script>
 </body>

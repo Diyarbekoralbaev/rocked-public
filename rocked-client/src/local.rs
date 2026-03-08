@@ -66,6 +66,8 @@ pub async fn relay_tcp(
                                     response_size: 0,
                                     request_headers: parsed.headers,
                                     response_headers: Vec::new(),
+                                    request_body: parsed.body,
+                                    response_body: None,
                                     timestamp: std::time::SystemTime::now()
                                         .duration_since(std::time::UNIX_EPOCH)
                                         .unwrap_or_default()
@@ -108,18 +110,20 @@ pub async fn relay_tcp(
                     if !parsed {
                         parsed = true;
                         if let (Some(ref tx), Some((id, start))) = (&inspect_tx2, &meta) {
-                            if let Some((status, headers)) = parse_http_response(&buf) {
+                            if let Some(parsed) = parse_http_response(&buf) {
                                 let event = RequestEvent {
                                     id: *id,
                                     method: String::new(),
                                     path: String::new(),
                                     host: String::new(),
-                                    status: Some(status),
+                                    status: Some(parsed.status),
                                     duration_ms: Some(start.elapsed().as_millis() as u64),
                                     request_size: 0,
                                     response_size: response_bytes,
                                     request_headers: Vec::new(),
-                                    response_headers: headers,
+                                    response_headers: parsed.headers,
+                                    request_body: None,
+                                    response_body: parsed.body,
                                     timestamp: 0,
                                 };
                                 let _ = tx.send(event);
@@ -146,6 +150,50 @@ struct ParsedRequest {
     path: String,
     host: String,
     headers: Vec<(String, String)>,
+    body: Option<String>,
+}
+
+/// Parsed HTTP response metadata.
+struct ParsedResponse {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Option<String>,
+}
+
+/// Check if content type is text-like (should be captured as string).
+fn is_text_content(headers: &[(String, String)]) -> bool {
+    headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case("content-type")
+            && (value.contains("json")
+                || value.contains("text")
+                || value.contains("xml")
+                || value.contains("html")
+                || value.contains("javascript")
+                || value.contains("css")
+                || value.contains("form-urlencoded"))
+    })
+}
+
+/// Extract body from raw HTTP bytes after headers end.
+fn extract_body(buf: &[u8], header_end: usize, headers: &[(String, String)]) -> Option<String> {
+    if header_end >= buf.len() {
+        return None;
+    }
+    let body_bytes = &buf[header_end..];
+    if body_bytes.is_empty() {
+        return None;
+    }
+    let limit = body_bytes.len().min(crate::inspect::MAX_BODY_CAPTURE);
+    if is_text_content(headers) || std::str::from_utf8(&body_bytes[..limit]).is_ok() {
+        let s = String::from_utf8_lossy(&body_bytes[..limit]).to_string();
+        if limit < body_bytes.len() {
+            Some(format!("{s}\n\n... truncated ({} bytes total)", body_bytes.len()))
+        } else {
+            Some(s)
+        }
+    } else {
+        Some(format!("[binary data, {} bytes]", body_bytes.len()))
+    }
 }
 
 /// Parse HTTP request from raw bytes.
@@ -153,7 +201,29 @@ fn parse_http_request(buf: &[u8]) -> Option<ParsedRequest> {
     let mut headers_buf = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Request::new(&mut headers_buf);
     match req.parse(buf) {
-        Ok(httparse::Status::Complete(_)) | Ok(httparse::Status::Partial) => {
+        Ok(httparse::Status::Complete(header_end)) => {
+            let method = req.method?.to_string();
+            let path = req.path?.to_string();
+            let mut host = String::new();
+            let mut headers = Vec::new();
+            for h in req.headers.iter() {
+                let name = h.name.to_string();
+                let value = String::from_utf8_lossy(h.value).to_string();
+                if name.eq_ignore_ascii_case("host") {
+                    host = value.clone();
+                }
+                headers.push((name, value));
+            }
+            let body = extract_body(buf, header_end, &headers);
+            Some(ParsedRequest {
+                method,
+                path,
+                host,
+                headers,
+                body,
+            })
+        }
+        Ok(httparse::Status::Partial) => {
             let method = req.method?.to_string();
             let path = req.path?.to_string();
             let mut host = String::new();
@@ -171,18 +241,19 @@ fn parse_http_request(buf: &[u8]) -> Option<ParsedRequest> {
                 path,
                 host,
                 headers,
+                body: None,
             })
         }
         Err(_) => None,
     }
 }
 
-/// Parse HTTP response from raw bytes. Returns (status_code, headers).
-fn parse_http_response(buf: &[u8]) -> Option<(u16, Vec<(String, String)>)> {
+/// Parse HTTP response from raw bytes.
+fn parse_http_response(buf: &[u8]) -> Option<ParsedResponse> {
     let mut headers_buf = [httparse::EMPTY_HEADER; 64];
     let mut resp = httparse::Response::new(&mut headers_buf);
     match resp.parse(buf) {
-        Ok(httparse::Status::Complete(_)) | Ok(httparse::Status::Partial) => {
+        Ok(httparse::Status::Complete(header_end)) => {
             let status = resp.code?;
             let headers: Vec<(String, String)> = resp
                 .headers
@@ -194,7 +265,30 @@ fn parse_http_response(buf: &[u8]) -> Option<(u16, Vec<(String, String)>)> {
                     )
                 })
                 .collect();
-            Some((status, headers))
+            let body = extract_body(buf, header_end, &headers);
+            Some(ParsedResponse {
+                status,
+                headers,
+                body,
+            })
+        }
+        Ok(httparse::Status::Partial) => {
+            let status = resp.code?;
+            let headers: Vec<(String, String)> = resp
+                .headers
+                .iter()
+                .map(|h| {
+                    (
+                        h.name.to_string(),
+                        String::from_utf8_lossy(h.value).to_string(),
+                    )
+                })
+                .collect();
+            Some(ParsedResponse {
+                status,
+                headers,
+                body: None,
+            })
         }
         Err(_) => None,
     }
