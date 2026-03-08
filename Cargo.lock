@@ -1661,7 +1661,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tunn"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "axum",
  "bytes",
@@ -1685,7 +1685,7 @@ dependencies = [
 
 [[package]]
 name = "tunn-proto"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "bytes",
  "serde",
