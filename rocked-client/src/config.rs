@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 )]
 pub struct Cli {
     /// Server address (host:port for QUIC)
-    #[arg(short, long, default_value = "guruaibot.com:4321")]
+    #[arg(short, long, default_value = "guruaibot.com:443")]
     pub server: String,
 
     /// License key for Pro features
