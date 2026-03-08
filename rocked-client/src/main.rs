@@ -53,6 +53,15 @@ async fn main() {
 
     let key = cli.key.clone().or_else(load_saved_key);
 
+    // Require license key before connecting
+    if key.is_none() {
+        eprintln!("License key required.\n");
+        eprintln!("Get a free key:  https://buy.polar.sh/polar_cl_z7iF79O39Sd0ODHPaDGCGPzEQJ7u5JAPbN0gu1cbOzF");
+        eprintln!("Then activate:   rocked activate <YOUR_KEY>");
+        eprintln!("Or pass inline:  rocked -k <YOUR_KEY> http <PORT>");
+        std::process::exit(1);
+    }
+
     // Bench command: open tunnel, benchmark, exit
     if let Command::Bench {
         port,
@@ -101,6 +110,14 @@ async fn main() {
             Ok(()) => {
                 info!("tunnel closed gracefully");
                 break;
+            }
+            Err(ClientError::Server(ref msg)) => {
+                warn!("{msg}");
+                std::process::exit(1);
+            }
+            Err(ClientError::SubdomainInUse) => {
+                warn!("subdomain already in use");
+                std::process::exit(1);
             }
             Err(e) => {
                 warn!("tunnel error: {e}, reconnecting in {:?}", backoff);
