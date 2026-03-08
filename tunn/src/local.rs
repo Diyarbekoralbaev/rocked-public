@@ -78,6 +78,9 @@ pub async fn relay_tcp(
                                 if let Some(sender) = meta_tx.take() {
                                     let _ = sender.send((id, start));
                                 }
+                            } else {
+                                // Drop meta_tx so l2q task doesn't block on meta_rx
+                                meta_tx.take();
                             }
                         }
                     }
@@ -98,7 +101,11 @@ pub async fn relay_tcp(
         let mut buf = BytesMut::with_capacity(READ_BUF_SIZE);
         let mut parsed = false;
         let mut response_bytes: u64 = 0;
-        let meta = meta_rx.await.ok();
+        let meta = if inspect_tx2.is_some() {
+            meta_rx.await.ok()
+        } else {
+            None
+        };
         loop {
             buf.clear();
             match local_read.read_buf(&mut buf).await {
