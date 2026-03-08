@@ -1091,41 +1091,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rocked-client"
-version = "0.10.0"
-dependencies = [
- "axum",
- "bytes",
- "clap",
- "dirs",
- "httparse",
- "qrcode",
- "quinn",
- "reqwest",
- "rocked-proto",
- "rustls",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "rocked-proto"
-version = "0.10.0"
-dependencies = [
- "bytes",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
 name = "rustc-hash"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1693,6 +1658,41 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "tunn"
+version = "0.11.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "clap",
+ "dirs",
+ "httparse",
+ "qrcode",
+ "quinn",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "tracing-subscriber",
+ "tunn-proto",
+]
+
+[[package]]
+name = "tunn-proto"
+version = "0.11.0"
+dependencies = [
+ "bytes",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
 
 [[package]]
 name = "typenum"

@@ -1,4 +1,4 @@
-//! Shared protocol types for the rocked tunneling tool.
+//! Shared protocol types for the tunn tunneling tool.
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};

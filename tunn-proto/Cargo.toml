@@ -1,6 +1,6 @@
 [package]
-name = "rocked-proto"
-version = "0.10.0"
+name = "tunn-proto"
+version = "0.11.0"
 edition = "2021"
 
 [dependencies]

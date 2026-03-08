@@ -1,4 +1,4 @@
-//! rocked-client: CLI binary for tunneling local services.
+//! tunn: CLI binary for tunneling local services.
 
 mod bench;
 mod config;
@@ -14,7 +14,7 @@ use std::time::Duration;
 use clap::Parser;
 use tracing::{debug, info, warn};
 
-use rocked_proto::{ClientHello, ServerHello, TunnelType, PROTOCOL_VERSION};
+use tunn_proto::{ClientHello, ServerHello, TunnelType, PROTOCOL_VERSION};
 
 use config::{Cli, Command};
 use error::ClientError;
@@ -24,7 +24,7 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "rocked=info".into()),
+                .unwrap_or_else(|_| "tunn=info".into()),
         )
         .init();
 
@@ -35,7 +35,7 @@ async fn main() {
             match update::run_update().await {
                 Ok(()) => {}
                 Err(update::UpdateError::AlreadyUpToDate(v)) => {
-                    info!("rocked v{v} is already the latest version");
+                    info!("tunn v{v} is already the latest version");
                 }
                 Err(e) => {
                     warn!("update failed: {e}");
@@ -58,8 +58,8 @@ async fn main() {
     if key.is_none() {
         eprintln!("License key required.\n");
         eprintln!("Get a free key:  https://buy.polar.sh/polar_cl_z7iF79O39Sd0ODHPaDGCGPzEQJ7u5JAPbN0gu1cbOzF");
-        eprintln!("Then activate:   rocked activate <YOUR_KEY>");
-        eprintln!("Or pass inline:  rocked -k <YOUR_KEY> http <PORT>");
+        eprintln!("Then activate:   tunn activate <YOUR_KEY>");
+        eprintln!("Or pass inline:  tunn -k <YOUR_KEY> http <PORT>");
         std::process::exit(1);
     }
 
@@ -213,9 +213,9 @@ async fn quic_handshake(
         version: PROTOCOL_VERSION,
         machine_id: Some(get_machine_id()),
     };
-    rocked_proto::write_control_msg(&mut ctrl_send, &hello).await?;
+    tunn_proto::write_control_msg(&mut ctrl_send, &hello).await?;
 
-    let server_hello: ServerHello = rocked_proto::read_control_msg(&mut ctrl_recv).await?;
+    let server_hello: ServerHello = tunn_proto::read_control_msg(&mut ctrl_recv).await?;
 
     Ok((server_hello, ctrl_send, ctrl_recv))
 }
@@ -355,11 +355,11 @@ async fn run_tunnel(
         }
 
         match type_buf[0] {
-            rocked_proto::STREAM_TYPE_RELAY => {
+            tunn_proto::STREAM_TYPE_RELAY => {
                 let tx = inspect_state.as_ref().map(|s| s.tx.clone());
                 tokio::spawn(local::relay_tcp(send, recv, local_port, tx));
             }
-            rocked_proto::STREAM_TYPE_UDP => {
+            tunn_proto::STREAM_TYPE_UDP => {
                 tokio::spawn(local::relay_udp(send, recv, local_port));
             }
             other => {
@@ -411,7 +411,7 @@ async fn run_bench_tunnel(
                 continue;
             }
 
-            if type_buf[0] == rocked_proto::STREAM_TYPE_RELAY {
+            if type_buf[0] == tunn_proto::STREAM_TYPE_RELAY {
                 tokio::spawn(local::relay_tcp(send, recv, local_port, None));
             }
         }
@@ -436,7 +436,7 @@ async fn run_bench_tunnel(
 fn key_file_path() -> std::path::PathBuf {
     let dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("rocked");
+        .join("tunn");
     std::fs::create_dir_all(&dir).ok();
     dir.join("key")
 }
@@ -505,7 +505,7 @@ fn read_raw_machine_id() -> String {
 fn fallback_machine_id() -> String {
     let path = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("rocked")
+        .join("tunn")
         .join("machine_id");
     if let Ok(id) = std::fs::read_to_string(&path) {
         let id = id.trim().to_string();

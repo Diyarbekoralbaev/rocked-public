@@ -1,14 +1,14 @@
 [package]
-name = "rocked-client"
-version = "0.10.0"
+name = "tunn"
+version = "0.11.0"
 edition = "2021"
 
 [[bin]]
-name = "rocked"
+name = "tunn"
 path = "src/main.rs"
 
 [dependencies]
-rocked-proto = { path = "../rocked-proto" }
+tunn-proto = { path = "../tunn-proto" }
 tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive", "env"] }
 tracing = "0.1"

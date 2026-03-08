@@ -187,7 +187,10 @@ fn extract_body(buf: &[u8], header_end: usize, headers: &[(String, String)]) -> 
     if is_text_content(headers) || std::str::from_utf8(&body_bytes[..limit]).is_ok() {
         let s = String::from_utf8_lossy(&body_bytes[..limit]).to_string();
         if limit < body_bytes.len() {
-            Some(format!("{s}\n\n... truncated ({} bytes total)", body_bytes.len()))
+            Some(format!(
+                "{s}\n\n... truncated ({} bytes total)",
+                body_bytes.len()
+            ))
         } else {
             Some(s)
         }

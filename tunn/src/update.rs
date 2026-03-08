@@ -1,9 +1,9 @@
-//! Version checking and self-update for the rocked CLI.
+//! Version checking and self-update for the tunn CLI.
 
 use serde::Deserialize;
 use tracing::debug;
 
-const GITHUB_REPO: &str = "Diyarbekoralbaev/rocked-public";
+const GITHUB_REPO: &str = "Diyarbekoralbaev/tunn";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -57,7 +57,7 @@ pub fn spawn_version_check() {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 eprintln!();
                 eprintln!("  Update available: v{CURRENT_VERSION} \u{2192} v{v}");
-                eprintln!("  Run `rocked update` to upgrade.");
+                eprintln!("  Run `tunn update` to upgrade.");
                 eprintln!();
             }
             Ok(Err(e)) => debug!("version check failed: {e}"),
@@ -72,7 +72,7 @@ async fn check_latest() -> Result<String, Box<dyn std::error::Error + Send + Syn
     // GET /releases/latest returns 302 → .../tag/v0.2.0
     let url = format!("https://github.com/{GITHUB_REPO}/releases/latest");
     let client = reqwest::Client::builder()
-        .user_agent(format!("rocked/{CURRENT_VERSION}"))
+        .user_agent(format!("tunn/{CURRENT_VERSION}"))
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
     let resp = client.get(&url).send().await?;
@@ -108,10 +108,10 @@ pub enum UpdateError {
 
 /// Run the interactive self-update: check → download → replace binary.
 pub async fn run_update() -> Result<(), UpdateError> {
-    eprintln!("rocked v{CURRENT_VERSION} \u{2014} checking for updates...");
+    eprintln!("tunn v{CURRENT_VERSION} \u{2014} checking for updates...");
 
     let client = reqwest::Client::builder()
-        .user_agent(format!("rocked/{CURRENT_VERSION}"))
+        .user_agent(format!("tunn/{CURRENT_VERSION}"))
         .build()?;
 
     let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
@@ -190,7 +190,7 @@ fn artifact_name() -> Result<String, UpdateError> {
         }
     };
     let ext = if cfg!(windows) { ".exe" } else { "" };
-    Ok(format!("rocked-{os}-{arch}{ext}"))
+    Ok(format!("tunn-{os}-{arch}{ext}"))
 }
 
 fn replace_binary(target: &std::path::Path, new_bytes: &[u8]) -> Result<(), UpdateError> {
@@ -199,7 +199,7 @@ fn replace_binary(target: &std::path::Path, new_bytes: &[u8]) -> Result<(), Upda
         .ok_or_else(|| UpdateError::Other("cannot determine binary directory".into()))?;
 
     if cfg!(unix) {
-        let tmp = parent.join(".rocked.update.tmp");
+        let tmp = parent.join(".tunn.update.tmp");
         std::fs::write(&tmp, new_bytes)?;
 
         #[cfg(unix)]
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn artifact_name_current_platform() {
         let name = artifact_name().unwrap();
-        assert!(name.starts_with("rocked-"));
+        assert!(name.starts_with("tunn-"));
         assert!(name.contains("amd64") || name.contains("arm64"));
     }
 }

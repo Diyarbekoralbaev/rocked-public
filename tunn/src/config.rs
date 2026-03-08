@@ -3,18 +3,14 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "rocked",
-    about = "Expose local servers to the internet",
-    version
-)]
+#[command(name = "tunn", about = "Expose local servers to the internet", version)]
 pub struct Cli {
     /// Server address (host:port for QUIC)
     #[arg(short, long, default_value = "tunn.uz:443")]
     pub server: String,
 
     /// License key for Pro features
-    #[arg(short, long, env = "ROCKED_KEY")]
+    #[arg(short, long, env = "TUNN_KEY")]
     pub key: Option<String>,
 
     #[command(subcommand)]
@@ -50,7 +46,7 @@ pub enum Command {
         /// Local port to expose
         port: u16,
     },
-    /// Update rocked to the latest version
+    /// Update tunn to the latest version
     Update,
     /// Activate a license key
     Activate {

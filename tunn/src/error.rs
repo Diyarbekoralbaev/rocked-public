@@ -11,7 +11,7 @@ pub enum ClientError {
     QuicConnect(#[from] quinn::ConnectError),
 
     #[error("protocol error: {0}")]
-    Proto(#[from] rocked_proto::ProtoError),
+    Proto(#[from] tunn_proto::ProtoError),
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
