@@ -126,6 +126,20 @@ pub struct ClientHello {
     pub version: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine_id: Option<String>,
+    /// Use a verified custom domain instead of a subdomain.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_domain: Option<String>,
+    /// Domain management command (add/verify). When set, no tunnel is created.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain_action: Option<DomainAction>,
+}
+
+/// Domain management actions (sent instead of creating a tunnel).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "lowercase")]
+pub enum DomainAction {
+    Add { domain: String },
+    Verify { domain: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +158,12 @@ pub enum ServerHello {
     },
     #[serde(rename = "subdomain_in_use")]
     SubdomainInUse,
+    /// Server returns a verification token after `DomainAction::Add`.
+    #[serde(rename = "domain_token")]
+    DomainToken { domain: String, token: String },
+    /// Server confirms domain is verified after `DomainAction::Verify`.
+    #[serde(rename = "domain_verified")]
+    DomainVerified { domain: String },
     #[serde(rename = "error")]
     Error { message: String },
 }
@@ -436,6 +456,8 @@ mod tests {
             key: None,
             version: PROTOCOL_VERSION,
             machine_id: None,
+            custom_domain: None,
+            domain_action: None,
         };
         let json = serde_json::to_string(&hello).unwrap();
         let decoded: ClientHello = serde_json::from_str(&json).unwrap();
@@ -509,6 +531,8 @@ mod tests {
             key: None,
             version: PROTOCOL_VERSION,
             machine_id: None,
+            custom_domain: None,
+            domain_action: None,
         };
         let (client, server) = tokio::io::duplex(1024);
         let (mut w, mut r) = (client, server);

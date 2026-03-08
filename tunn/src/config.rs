@@ -18,6 +18,20 @@ pub struct Cli {
 }
 
 #[derive(Subcommand, Debug)]
+pub enum DomainCommand {
+    /// Add a custom domain for verification
+    Add {
+        /// Domain name (e.g., diyarbek.uz)
+        domain: String,
+    },
+    /// Verify domain ownership via DNS TXT record
+    Verify {
+        /// Domain name to verify
+        domain: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 pub enum Command {
     /// Expose a local HTTP server
     Http {
@@ -26,6 +40,9 @@ pub enum Command {
         /// Custom subdomain (Pro only)
         #[arg(long)]
         subdomain: Option<String>,
+        /// Use a verified custom domain (Pro only)
+        #[arg(long)]
+        domain: Option<String>,
         /// Disable QR code display
         #[arg(long)]
         no_qr: bool,
@@ -52,6 +69,11 @@ pub enum Command {
     Activate {
         /// License key from Polar.sh
         key: String,
+    },
+    /// Manage custom domains (Pro only)
+    Domain {
+        #[command(subcommand)]
+        action: DomainCommand,
     },
     /// Benchmark tunnel latency and throughput
     Bench {

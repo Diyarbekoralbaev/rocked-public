@@ -14,9 +14,9 @@ use std::time::Duration;
 use clap::Parser;
 use tracing::{debug, info, warn};
 
-use tunn_proto::{ClientHello, ServerHello, TunnelType, PROTOCOL_VERSION};
+use tunn_proto::{ClientHello, DomainAction, ServerHello, TunnelType, PROTOCOL_VERSION};
 
-use config::{Cli, Command};
+use config::{Cli, Command, DomainCommand};
 use error::ClientError;
 
 #[tokio::main]
@@ -47,6 +47,22 @@ async fn main() {
         Command::Activate { key } => {
             save_key(key);
             info!("license key saved. Pro features will be active on next tunnel.");
+            return;
+        }
+        Command::Domain { action } => {
+            let key = cli.key.clone().or_else(load_saved_key);
+            if key.is_none() {
+                eprintln!("License key required for domain management.");
+                eprintln!("Activate:  tunn activate <YOUR_KEY>");
+                std::process::exit(1);
+            }
+            match run_domain_command(&cli.server, key, action).await {
+                Ok(()) => {}
+                Err(e) => {
+                    warn!("{e}");
+                    std::process::exit(1);
+                }
+            }
             return;
         }
         _ => {}
@@ -85,25 +101,31 @@ async fn main() {
         return;
     }
 
-    let (tunnel_type, local_port, subdomain, no_qr, no_inspect, inspect_port) = match &cli.command {
-        Command::Http {
-            port,
-            subdomain,
-            no_qr,
-            no_inspect,
-            inspect_port,
-        } => (
-            TunnelType::Http,
-            *port,
-            subdomain.clone(),
-            *no_qr,
-            *no_inspect,
-            *inspect_port,
-        ),
-        Command::Tcp { port } => (TunnelType::Tcp, *port, None, true, true, 0),
-        Command::Udp { port } => (TunnelType::Udp, *port, None, true, true, 0),
-        Command::Update | Command::Activate { .. } | Command::Bench { .. } => unreachable!(),
-    };
+    let (tunnel_type, local_port, subdomain, custom_domain, no_qr, no_inspect, inspect_port) =
+        match &cli.command {
+            Command::Http {
+                port,
+                subdomain,
+                domain,
+                no_qr,
+                no_inspect,
+                inspect_port,
+            } => (
+                TunnelType::Http,
+                *port,
+                subdomain.clone(),
+                domain.clone(),
+                *no_qr,
+                *no_inspect,
+                *inspect_port,
+            ),
+            Command::Tcp { port } => (TunnelType::Tcp, *port, None, None, true, true, 0),
+            Command::Udp { port } => (TunnelType::Udp, *port, None, None, true, true, 0),
+            Command::Update
+            | Command::Activate { .. }
+            | Command::Bench { .. }
+            | Command::Domain { .. } => unreachable!(),
+        };
 
     update::spawn_version_check();
 
@@ -134,6 +156,7 @@ async fn main() {
             local_port,
             key.clone(),
             subdomain.clone(),
+            custom_domain.clone(),
             &opts,
         )
         .await
@@ -203,6 +226,8 @@ async fn quic_handshake(
     tunnel_type: TunnelType,
     key: Option<String>,
     subdomain: Option<String>,
+    custom_domain: Option<String>,
+    domain_action: Option<DomainAction>,
 ) -> Result<(ServerHello, quinn::SendStream, quinn::RecvStream), ClientError> {
     let (mut ctrl_send, mut ctrl_recv) = conn.open_bi().await?;
 
@@ -212,6 +237,8 @@ async fn quic_handshake(
         key,
         version: PROTOCOL_VERSION,
         machine_id: Some(get_machine_id()),
+        custom_domain,
+        domain_action,
     };
     tunn_proto::write_control_msg(&mut ctrl_send, &hello).await?;
 
@@ -240,6 +267,7 @@ async fn run_tunnel(
     local_port: u16,
     key: Option<String>,
     subdomain: Option<String>,
+    custom_domain: Option<String>,
     opts: &TunnelOpts,
 ) -> Result<(), ClientError> {
     let (addr, server_name) = resolve_server(server)?;
@@ -263,7 +291,7 @@ async fn run_tunnel(
     };
 
     let (server_hello, _ctrl_send, _ctrl_recv) =
-        quic_handshake(&conn, tunnel_type, key, subdomain).await?;
+        quic_handshake(&conn, tunnel_type, key, subdomain, custom_domain, None).await?;
 
     let mut inspect_state: Option<inspect::InspectorState> = None;
 
@@ -333,6 +361,11 @@ async fn run_tunnel(
         ServerHello::SubdomainInUse => {
             return Err(ClientError::SubdomainInUse);
         }
+        ServerHello::DomainToken { .. } | ServerHello::DomainVerified { .. } => {
+            return Err(ClientError::Server(
+                "unexpected domain response during tunnel setup".into(),
+            ));
+        }
         ServerHello::Error { message } => {
             return Err(ClientError::Server(message.clone()));
         }
@@ -385,7 +418,7 @@ async fn run_bench_tunnel(
     let conn = endpoint.connect(addr, &server_name)?.await?;
 
     let (server_hello, _ctrl_send, _ctrl_recv) =
-        quic_handshake(&conn, TunnelType::Http, key, None).await?;
+        quic_handshake(&conn, TunnelType::Http, key, None, None, None).await?;
 
     let tunnel_url = match &server_hello {
         ServerHello::Success { hostname, .. } => {
@@ -395,6 +428,7 @@ async fn run_bench_tunnel(
         }
         ServerHello::Error { message } => return Err(ClientError::Server(message.clone())),
         ServerHello::SubdomainInUse => return Err(ClientError::SubdomainInUse),
+        _ => return Err(ClientError::Server("unexpected response".into())),
     };
 
     // Spawn relay in background — accept streams from server
@@ -430,6 +464,61 @@ async fn run_bench_tunnel(
     relay.abort();
     conn.close(0u32.into(), b"bench done");
 
+    Ok(())
+}
+
+/// Run a domain management command (add/verify) over QUIC.
+async fn run_domain_command(
+    server: &str,
+    key: Option<String>,
+    action: &DomainCommand,
+) -> Result<(), ClientError> {
+    let endpoint = make_quic_client()?;
+    let (addr, server_name) = resolve_server(server)?;
+    let conn = endpoint.connect(addr, &server_name)?.await?;
+
+    let domain_action = match action {
+        DomainCommand::Add { domain } => DomainAction::Add {
+            domain: domain.clone(),
+        },
+        DomainCommand::Verify { domain } => DomainAction::Verify {
+            domain: domain.clone(),
+        },
+    };
+
+    let (server_hello, _ctrl_send, _ctrl_recv) = quic_handshake(
+        &conn,
+        TunnelType::Http, // dummy, domain_action takes priority
+        key,
+        None,
+        None,
+        Some(domain_action),
+    )
+    .await?;
+
+    match server_hello {
+        ServerHello::DomainToken { domain, token } => {
+            eprintln!("Domain registered: {domain}\n");
+            eprintln!("Add this DNS TXT record to verify ownership:\n");
+            eprintln!("  Name:  _tunn-verify.{domain}");
+            eprintln!("  Type:  TXT");
+            eprintln!("  Value: {token}\n");
+            eprintln!("Then run:  tunn domain verify {domain}");
+        }
+        ServerHello::DomainVerified { domain } => {
+            info!("domain verified and certificate issued: {domain}");
+            eprintln!("\nYour domain is ready! Use it with:\n");
+            eprintln!("  tunn http 8080 --domain {domain}");
+        }
+        ServerHello::Error { message } => {
+            return Err(ClientError::Server(message));
+        }
+        _ => {
+            return Err(ClientError::Server("unexpected server response".into()));
+        }
+    }
+
+    conn.close(0u32.into(), b"done");
     Ok(())
 }
 
